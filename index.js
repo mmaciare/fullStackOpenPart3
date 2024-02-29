@@ -1,76 +1,99 @@
+require('dotenv').config()
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
+const Person = require('./models/person')
 const app = express()
 
+app.use(express.static('dist'))
 app.use(express.json())
 app.use(cors())
-app.use(express.static('dist'))
 
-let persons = [
-    { 
-      "id": 1,
-      "name": "Arto Hellas", 
-      "number": "040-123456"
-    },
-    { 
-      "id": 2,
-      "name": "Ada Lovelace", 
-      "number": "39-44-5323523"
-    },
-    { 
-      "id": 3,
-      "name": "Dan Abramov", 
-      "number": "12-43-234345"
-    },
-    { 
-      "id": 4,
-      "name": "Mary Poppendieck", 
-      "number": "39-23-6423122"
-    }
-]
-
+//Morgan LOGS
 morgan.token('body', function(req, res) {return JSON.stringify(req.body)})
 const newMorganFormat = ':method :url :status :res[content-length] - :response-time ms :body'
 app.use(morgan(newMorganFormat, { skip: (req, res) => req.method !== 'POST' }))
 
-app.get('/info', (request, response) => {
-    const infoForPeople = persons.length
-    const time = new Date().toString()
-    response.send(`<p>Phonebook has info for ${infoForPeople} people</p><p>${time}</p>`)
+//Error Handlers
+const unknownEndpoint = (request, response) => {
+  response.status(404).send({ error: 'unknown endpoint' })
+}
+app.use(unknownEndpoint)
+app.use(requestLogger)
+
+//ENDPOINTS
+app.get('/info', (request, response, next) => {
+    Person
+      .find({})
+      .then(persons => {
+        response.send(`<p>Phonebook has info for ${persons.length} people</p><p>${time}</p>`)
+        const time = new Date().toString()
+      })
+      .catch(error => next(error))
 })
 
-app.get('/api/persons', (request, response) => 
-    response.json(persons)
-)
+app.get('/api/persons', (request, response, next) => {
+  Person
+    .find({})
+    .then(persons => {
+      response.json(persons)})
+    .catch(error => next(error))
+  })
 
 
-app.get('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    const person = persons.find(person => person.id === id)
-    person ? response.json(person) : response.status(404).send('Person not found').end()
+app.get('/api/persons/:id', (request, response, next) => {
+    Person
+      .findById(request.params.id)
+      .then(fPerson => {
+        fPerson ? response.json(fPerson) : response.status(400).send('Person not found').end()
+      })
+      .catch(error => next(error))
 })
 
-app.delete('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    const person = persons.filter(person => person.id === id)
-    persons = persons.filter(person => person.id !== id)
-    response.status(204).end()
+app.delete('/api/persons/:id', (request, response, next) => {
+  Person
+    .findByIdAndDelete(request.params.id)
+    .then(dPerson => {
+      response.status(204).end()
+    })
+    .catch(error => next(error))
 })
 
-app.post('/api/persons', (request, response) => {
-  const person = request.body
-  const errors = validatePerson(person)
+app.put('/api/persons/:id', (request, response, next) => {
+  const person = {
+    name: request.body.name,
+    number: request.body.number
+  }
+
+  Person
+    .findByIdAndUpdate(request.params.id, person, {new:true})
+    .then(uPerson => {
+      response.send(uPerson)
+    })
+    .catch(error => next(error))
+})
+
+app.post('/api/persons', (request, response, next) => {
+  const body = request.body
+  const errors = validatePerson(body)
 
   if(errors.length !== 0) 
     return response.status(400).json(errors).end()
   
-  person.id = generateId()
-  persons = persons.concat(person)
-  response.json(person)
+  const person = new Person({
+    name: body.name,
+    number: body.number
+  })
+  
+  person
+    .save()
+    .then(savedPerson => 
+      {response.json(savedPerson)} )
+    .catch(error => next(error))
+
 })
 
-const generateId = () => Math.floor(Math.random() * 9999999)
+//VALIDATIONS
 
 const validatePerson = (newPerson) => {
   let errors = []
@@ -80,10 +103,12 @@ const validatePerson = (newPerson) => {
   } else {
     if(newPerson.name === null || newPerson.name === undefined || newPerson.name.trim().length === 0)
       errors = errors.concat({error: 'no name'})
-    else { 
-      if(persons.filter(person => person.name === newPerson.name).length !== 0) 
-        errors = errors.concat({error: 'name must be unique'}) 
-    }
+    else {
+      Person.find({name:newPerson.name}).then(fPerson => {
+      if(fPerson !== null) 
+        errors = errors.concat({error: 'name must be unique'})
+    })}
+    
     if(newPerson.number === null || newPerson.number === undefined || newPerson.number.trim().length === 0)
       errors = errors.concat({error: 'no number'})
   }
@@ -91,6 +116,7 @@ const validatePerson = (newPerson) => {
 }
 
 
-const PORT = 3001
+//SET PORT TO LISTEN
+const PORT = process.env.PORT
 app.listen(PORT)
 console.log(`Server running on port ${PORT}`)
