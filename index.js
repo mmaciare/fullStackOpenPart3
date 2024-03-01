@@ -18,7 +18,19 @@ app.use(morgan(newMorganFormat, { skip: (req, res) => req.method !== 'POST' }))
 const unknownEndpoint = (request, response) => {
   response.status(404).send({ error: 'unknown endpoint' })
 }
-app.use(unknownEndpoint)
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message)
+  if (error.name === 'CastError') {
+    return response.status(400).send({ error: 'malformatted id' })
+  } 
+
+  if (error.name === 'ValidationError')
+    return response.status(400).send({ error: error.message })
+  
+  next(error)
+}
+
 
 //ENDPOINTS
 app.get('/info', (request, response, next) => {
@@ -65,7 +77,7 @@ app.put('/api/persons/:id', (request, response, next) => {
   }
 
   Person
-    .findByIdAndUpdate(request.params.id, person, {new:true})
+    .findByIdAndUpdate(request.params.id, person,  { new: true, runValidators: true, context: 'query' })
     .then(uPerson => {
       response.send(uPerson)
     })
@@ -97,23 +109,16 @@ app.post('/api/persons', (request, response, next) => {
 const validatePerson = (newPerson) => {
   let errors = []
 
-  if(!newPerson) {
-    errors = errors.concat({error: 'content missing'})
-  } else {
-    if(newPerson.name === null || newPerson.name === undefined || newPerson.name.trim().length === 0)
-      errors = errors.concat({error: 'no name'})
-    else {
       Person.find({name:newPerson.name}).then(fPerson => {
       if(fPerson !== null) 
         errors = errors.concat({error: 'name must be unique'})
-    })}
-    
-    if(newPerson.number === null || newPerson.number === undefined || newPerson.number.trim().length === 0)
-      errors = errors.concat({error: 'no number'})
-  }
+    })
+  
   return errors
 }
 
+app.use(unknownEndpoint)
+app.use(errorHandler)
 
 //SET PORT TO LISTEN
 const PORT = process.env.PORT
